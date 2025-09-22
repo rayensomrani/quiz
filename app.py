@@ -1,21 +1,31 @@
 import streamlit as st
 import pandas as pd
-import random
 import time
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-import streamlit_authenticator as stauth
-from reportlab.lib.pagesizes import letter
 from io import BytesIO
-import time
-# --- CONFIGURATION UTILISATEURS ---
-names = ["Admin", "Pilote"]
-usernames = ["admin", "pilote"]
-passwords = ["admin123", "pilote123"]
-hashed_passwords = stauth.Hasher(passwords).generate()
+import streamlit_authenticator as stauth
 
-authenticator = stauth.Authenticate(names, usernames, hashed_passwords,
-                                     "quiz_nvgs", "abcdef", cookie_expiry_days=1)
+# --- CONFIGURATION DES UTILISATEURS ---
+credentials = {
+    "usernames": {
+        "admin": {
+            "name": "Admin",
+            "password": stauth.Hasher(["admin123"]).generate()[0]
+        },
+        "pilote": {
+            "name": "Pilote",
+            "password": stauth.Hasher(["pilote123"]).generate()[0]
+        }
+    }
+}
+
+authenticator = stauth.Authenticate(
+    credentials,
+    "quiz_nvgs",
+    "abcdef",
+    cookie_expiry_days=1
+)
 
 name, auth_status, username = authenticator.login("🔐 Connexion", "sidebar")
 
@@ -42,11 +52,13 @@ if "start_time" not in st.session_state:
     st.session_state.start_time = None
 if "quiz" not in st.session_state:
     st.session_state.quiz = None
+if "score" not in st.session_state:
+    st.session_state.score = None
 
 # --- FONCTION PDF ---
 def generate_pdf(name, score, responses, quiz):
-    filename = f"Evaluation_{name}.pdf"
-    c = canvas.Canvas(filename, pagesize=A4)
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     c.setFont("Helvetica", 12)
     c.drawString(50, height - 50, f"Feuille d'évaluation - {name}")
@@ -66,7 +78,8 @@ def generate_pdf(name, score, responses, quiz):
             c.showPage()
             y = height - 50
     c.save()
-    return filename
+    buffer.seek(0)
+    return buffer
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Quiz NVG", layout="wide")
@@ -82,6 +95,7 @@ if role == "Pilote":
         st.session_state.start_time = time.time()
         st.session_state.responses = {}
         st.session_state.quiz = df.sample(n=20).reset_index(drop=True)
+        st.session_state.score = None
 
     if st.session_state.start_time and st.session_state.quiz is not None:
         elapsed = time.time() - st.session_state.start_time
@@ -95,7 +109,7 @@ if role == "Pilote":
             for i, row in st.session_state.quiz.iterrows():
                 st.write(f"**Q{i+1}: {row['Question']}**")
                 options = [row.get(opt) for opt in ['A', 'B', 'C', 'D'] if pd.notna(row.get(opt))]
-                response = st.radio("Votre réponse :", options, key=f"q_{i}")
+                response = st.radio(f"Votre réponse à Q{i+1} :", options, key=f"response_{i}")
                 st.session_state.responses[i] = response
 
             if st.button("✅ Soumettre"):
@@ -105,12 +119,11 @@ if role == "Pilote":
                     selected = st.session_state.responses.get(i)
                     if selected and selected.strip().lower() == correct.strip().lower():
                         score += 1
-                note = round((score / 20) * 20, 2)
-                st.success(f"🎯 Votre note est : {note}/20")
+                st.session_state.score = round((score / 20) * 20, 2)
+                st.success(f"🎯 Votre note est : {st.session_state.score}/20")
 
-                pdf_file = generate_pdf(name, note, st.session_state.responses, st.session_state.quiz)
-                with open(pdf_file, "rb") as f:
-                    st.download_button("📥 Télécharger la feuille d’évaluation", f, file_name=pdf_file)
+                pdf_file = generate_pdf(name, st.session_state.score, st.session_state.responses, st.session_state.quiz)
+                st.download_button("📥 Télécharger la feuille d’évaluation", data=pdf_file, file_name=f"Evaluation_{name}.pdf")
 
 elif role == "Admin":
     st.header("🛠️ Espace Admin")
@@ -132,7 +145,7 @@ elif role == "Admin":
             "D": new_D,
             "Bonne réponse": new_correct
         }
-        df = df.append(new_row, ignore_index=True)
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df.to_excel("NVG_TEST.xlsx", index=False)
         st.success("✅ Question ajoutée avec succès.")
 
@@ -155,15 +168,5 @@ elif role == "Admin":
         df.at[question_index, "Bonne réponse"] = updated_correct
         df.to_excel("NVG_TEST.xlsx", index=False)
         st.success("✅ Question modifiée avec succès.")
-def generate_pdf(score, total):
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    p.drawString(100, 750, f"Quiz Results: {score}/{total}")
-    p.save()
-    buffer.seek(0)
-    return buffer
 
-# Dans la section résultats, ajoutez :
-pdf_file = generate_pdf(st.session_state.score, len(QUESTIONS))
-st.download_button("📄 Télécharger PDF", data=pdf_file, file_name="results.pdf")
 

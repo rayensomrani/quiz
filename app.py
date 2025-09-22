@@ -5,7 +5,9 @@ import time
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 import streamlit_authenticator as stauth
-
+from reportlab.lib.pagesizes import letter
+from io import BytesIO
+import time
 # --- CONFIGURATION UTILISATEURS ---
 names = ["Admin", "Pilote"]
 usernames = ["admin", "pilote"]
@@ -153,4 +155,15 @@ elif role == "Admin":
         df.at[question_index, "Bonne réponse"] = updated_correct
         df.to_excel("NVG_TEST.xlsx", index=False)
         st.success("✅ Question modifiée avec succès.")
+def generate_pdf(score, total):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    p.drawString(100, 750, f"Quiz Results: {score}/{total}")
+    p.save()
+    buffer.seek(0)
+    return buffer
+
+# Dans la section résultats, ajoutez :
+pdf_file = generate_pdf(st.session_state.score, len(QUESTIONS))
+st.download_button("📄 Télécharger PDF", data=pdf_file, file_name="results.pdf")
 

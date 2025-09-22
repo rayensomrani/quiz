@@ -41,6 +41,11 @@ elif auth_status is None:
 def load_questions():
     df = pd.read_excel("NVG_TEST.xlsx")
     df = df.dropna(subset=["Question", "Bonne réponse"])
+    
+    # Debug: Afficher les noms de colonnes pour vérification
+    st.sidebar.write("🔍 Colonnes détectées dans le fichier Excel:")
+    st.sidebar.write(list(df.columns))
+    
     return df
 
 df = load_questions()
@@ -81,6 +86,27 @@ def generate_pdf(name, score, responses, quiz):
     buffer.seek(0)
     return buffer
 
+# --- FONCTION POUR OBTENIR LES OPTIONS ---
+def get_options(row):
+    """Récupère les options disponibles d'une question"""
+    options = []
+    
+    # Essayer différents formats de noms de colonnes
+    possible_columns = ['A', 'B', 'C', 'D', 'Option A', 'Option B', 'Option C', 'Option D', 
+                       'Réponse A', 'Réponse B', 'Réponse C', 'Réponse D']
+    
+    for col in possible_columns:
+        if col in row and pd.notna(row[col]) and str(row[col]).strip() != "":
+            options.append(str(row[col]).strip())
+    
+    # Si aucune option n'est trouvée avec les noms standards, essayer toutes les colonnes
+    if not options:
+        for col in row.index:
+            if col not in ['Question', 'Bonne réponse', 'Bonne_reponse'] and pd.notna(row[col]) and str(row[col]).strip() != "":
+                options.append(str(row[col]).strip())
+    
+    return options
+
 # --- INTERFACE ---
 st.set_page_config(page_title="Quiz NVG", layout="wide")
 st.markdown("<h2 style='color:#007ACC;'>🛫 Application de Test NVG</h2>", unsafe_allow_html=True)
@@ -109,34 +135,34 @@ if role == "Pilote":
             for i, row in st.session_state.quiz.iterrows():
                 st.write(f"**Q{i+1}: {row['Question']}**")
                 
-                options = []
-                for opt in ['A', 'B', 'C', 'D']:
-                    val = row.get(opt)
-                    if val and str(val).strip() != "":
-                        options.append(val)
+                options = get_options(row)
 
                 if options:
                     response = st.radio(f"Votre réponse à Q{i+1} :", options, key=f"response_{i}")
                     st.session_state.responses[i] = response
                 else:
                     st.warning(f"⚠️ Aucune option disponible pour Q{i+1}")
-
+                    st.info(f"Bonne réponse attendue : {row['Bonne réponse']}")
 
             if st.button("✅ Soumettre"):
                 score = 0
                 for i, row in st.session_state.quiz.iterrows():
-                    correct = row['Bonne réponse']
+                    correct = str(row['Bonne réponse']).strip().lower()
                     selected = st.session_state.responses.get(i)
-                    if selected and selected.strip().lower() == correct.strip().lower():
+                    if selected and str(selected).strip().lower() == correct:
                         score += 1
                 st.session_state.score = round((score / 20) * 20, 2)
                 st.success(f"🎯 Votre note est : {st.session_state.score}/20")
 
                 pdf_file = generate_pdf(name, st.session_state.score, st.session_state.responses, st.session_state.quiz)
-                st.download_button("📥 Télécharger la feuille d’évaluation", data=pdf_file, file_name=f"Evaluation_{name}.pdf")
+                st.download_button("📥 Télécharger la feuille d'évaluation", data=pdf_file, file_name=f"Evaluation_{name}.pdf")
 
 elif role == "Admin":
     st.header("🛠️ Espace Admin")
+    
+    # Aperçu des données
+    st.subheader("📊 Aperçu des données")
+    st.dataframe(df.head())
 
     st.subheader("📌 Ajouter une nouvelle question")
     new_question = st.text_area("Question")
@@ -158,25 +184,31 @@ elif role == "Admin":
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df.to_excel("NVG_TEST.xlsx", index=False)
         st.success("✅ Question ajoutée avec succès.")
+        st.rerun()
 
     st.subheader("✏️ Rectifier une question existante")
     question_index = st.number_input("Numéro de la question à modifier", min_value=0, max_value=len(df)-1, step=1)
-    st.write(f"Question actuelle : {df.iloc[question_index]['Question']}")
-    updated_question = st.text_area("Nouvelle question", value=df.iloc[question_index]['Question'])
-    updated_A = st.text_input("Nouvelle option A", value=df.iloc[question_index]['A'])
-    updated_B = st.text_input("Nouvelle option B", value=df.iloc[question_index]['B'])
-    updated_C = st.text_input("Nouvelle option C", value=df.iloc[question_index]['C'])
-    updated_D = st.text_input("Nouvelle option D", value=df.iloc[question_index]['D'])
-    updated_correct = st.text_input("Nouvelle bonne réponse", value=df.iloc[question_index]['Bonne réponse'])
+    
+    if question_index < len(df):
+        st.write(f"Question actuelle : {df.iloc[question_index]['Question']}")
+        updated_question = st.text_area("Nouvelle question", value=df.iloc[question_index]['Question'])
+        
+        # Utiliser get() pour éviter les KeyError
+        updated_A = st.text_input("Nouvelle option A", value=df.iloc[question_index].get('A', ''))
+        updated_B = st.text_input("Nouvelle option B", value=df.iloc[question_index].get('B', ''))
+        updated_C = st.text_input("Nouvelle option C", value=df.iloc[question_index].get('C', ''))
+        updated_D = st.text_input("Nouvelle option D", value=df.iloc[question_index].get('D', ''))
+        updated_correct = st.text_input("Nouvelle bonne réponse", value=df.iloc[question_index]['Bonne réponse'])
 
-    if st.button("💾 Rectifier"):
-        df.at[question_index, "Question"] = updated_question
-        df.at[question_index, "A"] = updated_A
-        df.at[question_index, "B"] = updated_B
-        df.at[question_index, "C"] = updated_C
-        df.at[question_index, "D"] = updated_D
-        df.at[question_index, "Bonne réponse"] = updated_correct
-        df.to_excel("NVG_TEST.xlsx", index=False)
-        st.success("✅ Question modifiée avec succès.")
+        if st.button("💾 Rectifier"):
+            df.at[question_index, "Question"] = updated_question
+            df.at[question_index, "A"] = updated_A
+            df.at[question_index, "B"] = updated_B
+            df.at[question_index, "C"] = updated_C
+            df.at[question_index, "D"] = updated_D
+            df.at[question_index, "Bonne réponse"] = updated_correct
+            df.to_excel("NVG_TEST.xlsx", index=False)
+            st.success("✅ Question modifiée avec succès.")
+            st.rerun()
 
 

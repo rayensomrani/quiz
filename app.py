@@ -108,9 +108,19 @@ if role == "Pilote":
         else:
             for i, row in st.session_state.quiz.iterrows():
                 st.write(f"**Q{i+1}: {row['Question']}**")
-                options = [row.get(opt) for opt in ['A', 'B', 'C', 'D'] if pd.notna(row.get(opt))]
-                response = st.radio(f"Votre réponse à Q{i+1} :", options, key=f"response_{i}")
-                st.session_state.responses[i] = response
+                
+                options = []
+                for opt in ['A', 'B', 'C', 'D']:
+                    val = row.get(opt)
+                    if val and str(val).strip() != "":
+                        options.append(val)
+
+                if options:
+                    response = st.radio(f"Votre réponse à Q{i+1} :", options, key=f"response_{i}")
+                    st.session_state.responses[i] = response
+                else:
+                    st.warning(f"⚠️ Aucune option disponible pour Q{i+1}")
+
 
             if st.button("✅ Soumettre"):
                 score = 0
